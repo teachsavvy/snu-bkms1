@@ -1,7 +1,7 @@
 # ├── 1. 스키마 Prompt 정의
-# ├── 2. Few-shot 예시 정의 (선택)
+# ├── 2. Few-shot 예시 정의 (필요 시)
 # ├── 3. 자연어 → Cypher 함수
-# ├── 4. 예외처리 포함 실행 블록 (선택)
+# ├── 4. 예외처리 포함 실행 블록 (필요 시)
 
 # nl2cypher_mcp.py
 
@@ -15,10 +15,8 @@ import openai
 # 1. OpenAI 키 설정
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# 2. FastAPI 앱 생성
+# 2. FastAPI 앱 생성 및 CORS 허용(port 다를 경우 대비)
 app = FastAPI()
-
-# 3. CORS 허용(port 다를 경우 대비)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 제한할 수도 있음
@@ -26,11 +24,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 4. 데이터 입력 형식 정의
+# 3. 데이터 입력 형식 정의
 class QueryRequest(BaseModel):
     message: str
 
-# 5. StackOverflow 스키마 프롬프트
+# 4. StackOverflow 스키마 프롬프트
 STACKOVERFLOW_SCHEMA = """
 Graph Schema for StackOverflow Neo4j:
 
@@ -80,73 +78,57 @@ Graph Schema for StackOverflow Neo4j:
   - (a:Answer)-[:HAS_COMMENT]->(c:Comment)
 """
 
-# --. Few-shot 예시 정의 (선택 사항)
-# GPT의 쿼리 정확도를 높이고 싶다면 아래 예시를 활성화하세요
 
-# """
-# FEW_SHOT_EXAMPLES = '''
-# Example 1:
-# Q: 가장 많이 질문한 사용자는 누구야?
-# A:
-# MATCH (u:User)-[:ASKED]->(q:Question)
-# RETURN u.display_name, COUNT(q) AS questions
-# ORDER BY questions DESC
-# LIMIT 1
-
-# Example 2:
-# Q: 자바 태그가 붙은 질문 중 조회수 높은 거 알려줘
-# A:
-# MATCH (q:Question)-[:HAS_TAG]->(t:Tag)
-# WHERE t.name = "java"
-# RETURN q.title, q.view_count
-# ORDER BY q.view_count DESC
-# LIMIT 1
-
-# Example 3:
-# Q: 가장 높은 점수를 받은 답변은?
-# A:
-# MATCH (a:Answer)
-# RETURN a.title, a.score
-# ORDER BY a.score DESC
-# LIMIT 1
-# '''
-# """
-
-# 6. 자연어 → Cypher 변환 함수
+# 5. 자연어 → Cypher 변환 함수
 def natural_language_to_cypher(nl_query: str) -> str:
-    prompt = f"""
-You are an assistant that converts natural language questions into Cypher queries
-for a StackOverflow-like Neo4j graph database.
+    system_prompt = f"""
+You are an expert Neo4j Cypher query translator. Your task is to convert natural language questions into Cypher queries based on the provided schema.
+Always adhere to the following rules:
+- Only use the nodes, relationships, and properties explicitly defined in the schema.
+- Do not infer or invent any details not present in the schema.
+- Output ONLY the raw Cypher query, without any additional text, explanations, or markdown formatting like ```cypher.
+"""
 
-Use the following schema:
+    user_prompt = f"""
+Schema:
 {STACKOVERFLOW_SCHEMA}
 
-⚠️ Important Notes:
-- Only use the provided schema.
-- Do NOT invent properties or relationships not listed in the schema.
-- If a relationship or attribute is not described, do not assume it exists.
-- Stick to the exact node labels and property names given.
+Natural language question:
+"{nl_query}"
 
-Convert the following natural language question into a Cypher query:
-\"{nl_query}\"
-
-Only output the Cypher query. Do not include explanations.
+Cypher query:
 """
+    # [개선] 안정성을 위해 상세 에러 처리만 추가
     try:
+        # 이전 버전(v0.x)의 openai 라이브러리 호출 방식을 사용합니다.
         response = openai.ChatCompletion.create(
             model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "system_prompt"},
+                {"role": "user", "content": user_prompt}
+            ],
             temperature=0
         )
         return response.choices[0].message["content"].strip()
-    except Exception as e:
-        return f"[ERROR] GPT failed: {str(e)}"
 
-# 7. MCP 서버 API 엔드포인트
+    # openai 라이브러리의 구체적인 에러 유형을 처리
+    except openai.error.AuthenticationError:
+        return "[ERROR] OpenAI API 인증에 실패했습니다. API 키를 확인하세요."
+    except openai.error.RateLimitError:
+        return "[ERROR] OpenAI API 사용량 한도를 초과했습니다. 잠시 후 다시 시도하세요."
+    except openai.error.APIConnectionError:
+        return "[ERROR] OpenAI 서버에 연결할 수 없습니다. 네트워크 상태를 확인하세요."
+    except openai.error.APIError as e:
+        return f"[ERROR] OpenAI API가 에러를 반환했습니다: {e}"
+    except Exception as e:
+        return f"[ERROR] 쿼리 생성 중 예상치 못한 에러가 발생했습니다: {e}"
+
+# 6. MCP 서버 API 엔드포인트
 @app.post("/generate-query")
 def generate_query(request: QueryRequest):
     query = natural_language_to_cypher(request.message)
-    return {"query": query, "parameters": {}}  # Streamlit과 계약된 포맷
-  
+    return {"query": query, "parameters": {}}
+
+# 7. 서버 실행
 if __name__ == "__main__":
     uvicorn.run("nl2cypher_mcp:app", host="0.0.0.0", port=8000, reload=True)
