@@ -1,0 +1,6 @@
+streamlit
+openai
+streamlit-agraph
+python-dotenv
+neo4j
+requests
