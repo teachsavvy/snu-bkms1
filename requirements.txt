@@ -1,6 +1,8 @@
 streamlit
 openai
-streamlit-agraph
+requests
+fastapi
+uvicorn
 python-dotenv
 neo4j
-requests
+streamlit-agraph
