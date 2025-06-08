@@ -7,7 +7,9 @@ import requests
 import json
 from neo4j import GraphDatabase, RoutingControl
 
-from graph_util.graph_util import execute_neo4j_query, convert_neo4j_to_graph
+import sys
+sys.path.append(os.path.abspath("../graph_utils"))
+from graph_utils.graph_utils import execute_neo4j_query, convert_neo4j_to_graph
 
 #def execute_neo4j_query(driver, query, parameters=None):
 #    """Execute a Cypher query on Neo4j database"""
