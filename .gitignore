@@ -197,6 +197,3 @@ cython_debug/
 # bkms1
 bkms1/
 
-
-# .env
-.env
