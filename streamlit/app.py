@@ -9,6 +9,9 @@ from neo4j import GraphDatabase, RoutingControl
 
 def execute_neo4j_query(driver, query, parameters=None):
     """Execute a Cypher query on Neo4j database"""
+    # Store the query in session state for context in AI responses
+    st.session_state.last_cypher_query = query
+    
     try:
         records, _, _ = driver.execute_query(
             query,
@@ -50,29 +53,188 @@ def convert_neo4j_to_graph(records):
     nodes = {}
     edges = []
     
+    # Node color mapping based on label
+    color_map = {
+        "User": "#FF6B6B",
+        "Question": "#4ECDC4",
+        "Answer": "#45B7D1",
+        "Tag": "#FFA62B",
+        "Comment": "#C04CFD"
+    }
+    
+    # Process each record from the query results
     for record in records:
-        # Extract nodes from the record
+        # First pass: Extract all nodes
         for key, value in record.items():
-            if hasattr(value, 'labels') and hasattr(value, 'id'):  # It's a node
+            # Case 1: It's a Neo4j node object
+            if hasattr(value, 'labels') and hasattr(value, 'id'):
                 node_id = str(value.id)
                 if node_id not in nodes:
+                    # Get the first label (e.g., 'User', 'Question')
                     label = list(value.labels)[0] if value.labels else "Node"
+                    
+                    # Get properties to display in the label
+                    properties = {}
+                    if hasattr(value, 'items'):
+                        properties = dict(value.items())
+                    
+                    # Create a meaningful label
+                    display_label = label
+                    if 'name' in properties:
+                        display_label = f"{label}: {properties['name']}"
+                    elif 'display_name' in properties:
+                        display_label = f"{label}: {properties['display_name']}"
+                    elif 'title' in properties:
+                        display_label = f"{label}: {properties['title'][:20]}..."
+                    
+                    # Create hover text that includes body_markdown if available
+                    hover_text = ""
+                    if 'title' in properties:
+                        # Truncate long markdown to a reasonable length for hover
+                        title_text = properties['title']
+                        if len(title_text) > 200:
+                            title_text = title_text[:197] + "..."
+                        hover_text = title_text
+                    if 'body_markdown' in properties:
+                        # Truncate long markdown to a reasonable length for hover
+                        body_text = properties['body_markdown']
+                        if len(body_text) > 200:
+                            body_text = body_text[:197] + "..."
+                        hover_text = body_text
+                    
+                    # Create the node with appropriate color and hover text
                     nodes[node_id] = Node(
                         id=node_id,
-                        label=f"{label}:{node_id}",
+                        label=display_label,
                         size=25,
-                        color="#4ECDC4"
+                        color=color_map.get(label, "#4ECDC4"),
+                        title=hover_text  # This is what shows on hover
                     )
-            elif hasattr(value, 'type') and hasattr(value, 'start_node'):  # It's a relationship
+            
+            # Case 2: It's a Neo4j relationship object
+            elif hasattr(value, 'type') and hasattr(value, 'start_node') and hasattr(value, 'end_node'):
+                source_id = str(value.start_node.id)
+                target_id = str(value.end_node.id)
+                
+                # Add source and target nodes if they don't exist yet
+                for node, node_id, node_obj in [("source", source_id, value.start_node), 
+                                               ("target", target_id, value.end_node)]:
+                    if node_id not in nodes and hasattr(node_obj, 'labels'):
+                        label = list(node_obj.labels)[0] if node_obj.labels else "Node"
+                        
+                        # Get properties to check for body_markdown
+                        properties = {}
+                        if hasattr(node_obj, 'items'):
+                            properties = dict(node_obj.items())
+                        
+                        # Create hover text
+                        hover_text = ""
+                        if 'body_markdown' in properties:
+                            body_text = properties['body_markdown']
+                            if len(body_text) > 200:
+                                body_text = body_text[:197] + "..."
+                            hover_text = body_text
+                        elif 'body' in properties:
+                            body_text = properties['body']
+                            if len(body_text) > 200:
+                                body_text = body_text[:197] + "..."
+                            hover_text = body_text
+                        
+                        nodes[node_id] = Node(
+                            id=node_id,
+                            label=f"{label}",
+                            size=25,
+                            color=color_map.get(label, "#4ECDC4"),
+                            title=hover_text
+                        )
+                
+                # Create the edge
                 edge = Edge(
-                    source=str(value.start_node.id),
-                    target=str(value.end_node.id),
+                    source=source_id,
+                    target=target_id,
                     label=value.type,
                     color="#999"
                 )
                 edges.append(edge)
+            
+            # Case 3: Handle scalar values (create nodes for them)
+            elif isinstance(value, (str, int, float)) and key not in ["count", "sum", "avg"]:
+                # For scalar results like usernames, create nodes for them
+                node_id = f"{key}_{value}"
+                if node_id not in nodes:
+                    # For scalar values, use the value itself as hover text if it's a string
+                    hover_text = str(value) if isinstance(value, str) else f"{key}: {value}"
+                    
+                    nodes[node_id] = Node(
+                        id=node_id,
+                        label=f"{key}: {value}",
+                        size=25,
+                        color="#FFA62B",
+                        title=hover_text
+                    )
+    
+    # If we only have scalar values and no relationships, create a central node
+    if nodes and not edges and len(nodes) > 1:
+        central_id = "results_center"
+        nodes[central_id] = Node(
+            id=central_id,
+            label="Results",
+            size=30,
+            color="#C04CFD",
+            title="Central node connecting all query results"
+        )
+        
+        # Connect all nodes to the central node
+        for node_id in list(nodes.keys()):
+            if node_id != central_id:
+                edges.append(Edge(
+                    source=central_id,
+                    target=node_id,
+                    label="result",
+                    color="#CCCCCC"
+                ))
     
     return list(nodes.values()), edges
+
+def display_network_in_chat(nodes, edges):
+    """Display network visualization inside chat message"""
+    # Configuration for the graph
+    config = Config(
+        width=700,
+        height=400,
+        directed=True,
+        physics=True,
+        physics_props={
+            "barnesHut": {"gravitationalConstant": -2000, "centralGravity": 0.3, "springLength": 95},
+            "minVelocity": 0.75
+        },
+        hierarchical=False,
+        nodeHighlightBehavior=True,
+        highlightColor="#F7A7A6",
+        collapsible=False,
+        node={
+            "labelProperty": "label",
+            "fontColor": "black",
+            "fontSize": 14,
+            "highlightFontSize": 16,
+            "highlightStrokeColor": "#FF0000",
+            "highlightStrokeWidth": 2
+        },
+        link={
+            "labelProperty": "label",
+            "renderLabel": True,
+            "fontSize": 12,
+            "highlightColor": "#FF0000"
+        }
+    )
+    
+    # Display the graph
+    st.subheader("📊 Network Visualization")
+    return_value = agraph(nodes=nodes, edges=edges, config=config)
+    
+    # Display selected node information
+    if return_value:
+        st.write("**Selected Node:**", return_value)
 
 def stream_openai_response(client, messages):
     """Stream response from OpenAI API"""
@@ -111,176 +273,209 @@ client = OpenAI(api_key=api_key) if api_key else None
 
 # Page configuration
 st.set_page_config(
-    page_title="Network Visualization & AI Chat",
+    page_title="AI Chatbot with Network Visualization",
     page_icon="🤖",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-st.title("🕸️ Network Visualization & AI Chatbot")
+# Sidebar with API status
+st.sidebar.header("🔧 Configuration Status")
+
+# Check API configurations in sidebar
+if not api_key:
+    st.sidebar.error("⚠️ OpenAI API key not found!")
+else:
+    st.sidebar.success("✅ OpenAI API key loaded")
+
+if not NEO4J_URI:
+    st.sidebar.error("⚠️ Neo4j connection not configured!")
+else:
+    st.sidebar.success("✅ Neo4j connection configured")
+
+# Sidebar info
+st.sidebar.markdown("---")
+st.sidebar.markdown("""
+**Environment Variables Required:**
+- `OPENAI_API_KEY`: Your OpenAI API key
+- `NEO4J_URI`: Neo4j database URI
+- `NEO4J_AUTH_USERNAME`: Neo4j username
+- `NEO4J_AUTH_PASSWORD`: Neo4j password
+- `MCP_SERVER_ENDPOINT`: MCP server endpoint
+""")
+
+# Main content
+st.title("🤖 AI Chatbot with Network Visualization")
 
 # Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "graph_nodes" not in st.session_state:
-    st.session_state.graph_nodes = [
-        Node(id="A", label="Node A", size=25, color="#FF6B6B"),
-        Node(id="B", label="Node B", size=25, color="#4ECDC4"),
-        Node(id="C", label="Node C", size=25, color="#45B7D1"),
-    ]
-if "graph_edges" not in st.session_state:
-    st.session_state.graph_edges = [
-        Edge(source="A", target="B", label="A-B", color="#999"),
-        Edge(source="B", target="C", label="B-C", color="#999"),
-    ]
 
-# Create two columns
-col1, col2 = st.columns([1, 1])
+# Clear chat button
+if st.button("Clear Chat History"):
+    st.session_state.messages = []
+    st.rerun()
 
-# Left column: Network Visualization
-with col1:
-    st.header("🕸️ Network Graph")
-    
-    # Configuration for the graph
-    config = Config(
-        width=500,
-        height=400,
-        directed=True,
-        physics=True,
-        hierarchical=False,
-        nodeHighlightBehavior=True,
-        highlightColor="#F7A7A6",
-        collapsible=False,
-    )
-    
-    # Display the graph
-    return_value = agraph(
-        nodes=st.session_state.graph_nodes, 
-        edges=st.session_state.graph_edges, 
-        config=config
-    )
-    
-    # Display selected node information
-    if return_value:
-        st.write("**Selected Node:**", return_value)
-    
-    # Add controls to modify the graph
-    st.subheader("Graph Controls")
-    
-    if st.button("Reset Graph"):
-        st.session_state.graph_nodes = [
-            Node(id="A", label="Node A", size=25, color="#FF6B6B"),
-            Node(id="B", label="Node B", size=25, color="#4ECDC4"),
-            Node(id="C", label="Node C", size=25, color="#45B7D1"),
-        ]
-        st.session_state.graph_edges = [
-            Edge(source="A", target="B", label="A-B", color="#999"),
-            Edge(source="B", target="C", label="B-C", color="#999"),
-        ]
-        st.rerun()
-
-# Right column: OpenAI Chatbot
-with col2:
-    st.header("🤖 AI Assistant")
-    
-    # Check API configurations
-    if not api_key:
-        st.error("⚠️ OpenAI API key not found! Please add OPENAI_API_KEY to your .env file")
-    else:
-        st.success("✅ OpenAI API key loaded")
-    
-    if not NEO4J_URI:
-        st.error("⚠️ Neo4j URI not found! Please add NEO4J_URI to your .env file")
-    else:
-        st.success("✅ Neo4j connection configured")
-    
-    # Display chat messages ABOVE the input box
-    chat_container = st.container()
-    with chat_container:
-        if st.session_state.messages:
-            for i, message in enumerate(st.session_state.messages):
-                with st.chat_message(message["role"]):
-                    st.markdown(message["content"])
+# Display all chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        if message["role"] == "assistant" and "network_data" in message:
+            # Display the text response first
+            st.markdown(message["content"])
+            
+            # Then display the network visualization
+            nodes, edges = message["network_data"]["nodes"], message["network_data"]["edges"]
+            display_network_in_chat(nodes, edges)
+            
+            # Display query results details
+            if "query_results" in message:
+                with st.expander("📋 View Detailed Query Results", expanded=False):
+                    results = message["query_results"]
+                    for i, record in enumerate(results):
+                        st.markdown(f"**Result {i+1}**")
+                        for key, value in record.items():
+                            if hasattr(value, 'labels') and hasattr(value, 'id'):  # It's a node
+                                label = list(value.labels)[0] if value.labels else "Node"
+                                properties = dict(value.items()) if hasattr(value, 'items') else {}
+                                st.markdown(f"**{key}** ({label})")
+                                st.json(properties)
+                            elif hasattr(value, 'type') and hasattr(value, 'start_node'):  # It's a relationship
+                                st.markdown(f"**{key}** (Relationship: {value.type})")
+                            else:  # It's a scalar value
+                                st.markdown(f"**{key}**: {value}")
+                        st.markdown("---")
         else:
-            st.info("💭 Start a conversation! Ask me about network data or any other topic.")
+            st.markdown(message["content"])
+
+# Show info message only if no messages exist
+if not st.session_state.messages:
+    st.info("💭 Start a conversation! Ask me about network data or any other topic.")
+
+# Chat input
+if prompt := st.chat_input("Ask me anything about the network or any other topic..."):
+    # Add user message to chat history and display immediately
+    st.session_state.messages.append({"role": "user", "content": prompt})
     
-    # Clear chat button (placed before input)
-    if st.button("Clear Chat History"):
-        st.session_state.messages = []
-        st.rerun()
+    # Display the user message
+    with st.chat_message("user"):
+        st.markdown(prompt)
     
-    # Chat input at the bottom
-    if prompt := st.chat_input("Ask me anything about the network or any other topic..."):
-        # Add user message to chat history
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        # Display user message immediately
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        
-        # Process the message
-        if api_key and NEO4J_URI:
-            try:
-                with st.chat_message("assistant"):
-                    with st.spinner("🔍 Generating database query..."):
-                        # Step 1: Call MCP server to generate Cypher query
-                        cipher_query, query_params = call_mcp_server(prompt)
-                        
-                        if cipher_query:
-                            st.info(f"Generated query: `{cipher_query}`")
-                            
-                            # Step 2: Execute query on Neo4j
-                            with st.spinner("📊 Querying database..."):
-                                with GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH) as driver:
-                                    driver.verify_connectivity()
-                                    query_results = execute_neo4j_query(driver, cipher_query, query_params)
-                                    
-                                    if query_results:
-                                        st.success(f"Found {len(query_results)} results")
-                                        
-                                        # Step 3: Convert results to graph visualization
-                                        nodes, edges = convert_neo4j_to_graph(query_results)
-                                        if nodes:
-                                            st.session_state.graph_nodes = nodes
-                                            st.session_state.graph_edges = edges
-                                            st.success("📈 Graph updated with query results!")
-                                        else:
-                                            st.warning("No graph data found in query results")
-                                    else:
-                                        st.warning("No results found for the query")
-                        else:
-                            st.warning("Could not generate a valid database query")
-                    
-                    # Step 4: Generate OpenAI response (streaming)
-                    with st.spinner("🤖 Generating response..."):
-                        system_message = {
-                            "role": "system", 
-                            "content": "You are a helpful assistant that can discuss network graphs, database queries, data visualization, and any other topics. You have access to a Neo4j database and can help analyze graph data."
-                        }
-                        
-                        messages_for_ai = [system_message] + st.session_state.messages
-                        assistant_response = stream_openai_response(client, messages_for_ai)
-                        
-                        # Add assistant response to chat history
-                        st.session_state.messages.append({"role": "assistant", "content": assistant_response})
-                        
-            except Exception as e:
-                st.error(f"Error processing message: {str(e)}")
-        else:
+    # Process the message
+    if api_key and NEO4J_URI:
+        try:
             with st.chat_message("assistant"):
-                st.error("Cannot respond: Required API keys or database connection not configured")
-
-# Footer
-st.markdown("---")
-st.markdown("""
-**Environment Variables Required:**
-- `OPENAI_API_KEY`: Your OpenAI API key
-- `NEO4J_URI`: Neo4j database URI (e.g., "neo4j://localhost:7687")
-- `NEO4J_AUTH_USERNAME`: Neo4j username
-- `NEO4J_AUTH_PASSWORD`: Neo4j password
-- `MCP_SERVER_ENDPOINT`: MCP server endpoint (optional, defaults to localhost:8000)
-
-**Instructions:**
-1. Install: `pip install streamlit streamlit-agraph openai python-dotenv neo4j requests`
-2. Create `.env` file with the variables above
-3. Run: `streamlit run app.py`
-""")
+                # Step 1: Call MCP server to generate Cypher query
+                with st.spinner("🔍 Generating database query..."):
+                    cipher_query, query_params = call_mcp_server(prompt)
+                    
+                    query_results = None
+                    nodes = None
+                    edges = None
+                    
+                    if cipher_query:
+                        st.info(f"Generated query: `{cipher_query}`")
+                        
+                        # Step 2: Execute query on Neo4j
+                        with st.spinner("📊 Querying database..."):
+                            with GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH) as driver:
+                                driver.verify_connectivity()
+                                query_results = execute_neo4j_query(driver, cipher_query, query_params)
+                                
+                                if query_results:
+                                    st.success(f"Found {len(query_results)} results")
+                                    
+                                    # Step 3: Convert results to graph visualization
+                                    nodes, edges = convert_neo4j_to_graph(query_results)
+                                    if nodes:
+                                        st.success("📈 Network visualization generated!")
+                                    else:
+                                        st.warning("No graph data found in query results")
+                                else:
+                                    st.warning("No results found for the query")
+                    else:
+                        st.warning("Could not generate a valid database query")
+                
+                # Step 4: Generate OpenAI response (streaming) with query results context
+                with st.spinner("🤖 Generating response..."):
+                    # Create a system message that includes query results if available
+                    system_content = "You are a helpful assistant that can discuss network graphs, database queries, data visualization, and any other topics. You have access to a Neo4j database and can help analyze graph data."
+                    
+                    # If we have query results, add them to the system message
+                    if query_results:
+                        results_summary = []
+                        
+                        # Format the query results for the system message
+                        for i, record in enumerate(query_results[:5]):  # Limit to first 5 results to avoid token limits
+                            record_summary = {}
+                            for key, value in record.items():
+                                # Handle different types of values
+                                if hasattr(value, 'labels') and hasattr(value, 'id'):
+                                    # It's a node
+                                    label = list(value.labels)[0] if value.labels else "Node"
+                                    properties = dict(value.items()) if hasattr(value, 'items') else {}
+                                    record_summary[key] = f"{label} with properties: {properties}"
+                                elif hasattr(value, 'type') and hasattr(value, 'start_node'):
+                                    # It's a relationship
+                                    record_summary[key] = f"Relationship of type {value.type}"
+                                else:
+                                    # It's a scalar value
+                                    record_summary[key] = str(value)
+                            results_summary.append(record_summary)
+                        
+                        # Add query results context to system message
+                        if results_summary:
+                            system_content += f"\n\nThe following query results were retrieved from the Neo4j database:\n{results_summary}\n\nPlease incorporate these results in your response when relevant. Explain insights from the data when possible."
+                        
+                        # Add the Cypher query that was executed
+                        if "last_cypher_query" in st.session_state:
+                            system_content += f"\n\nThe Cypher query that was executed was:\n```\n{st.session_state.last_cypher_query}\n```"
+                    
+                    system_message = {
+                        "role": "system", 
+                        "content": system_content
+                    }
+                    
+                    messages_for_ai = [system_message] + st.session_state.messages
+                    assistant_response = stream_openai_response(client, messages_for_ai)
+                    
+                    # Create assistant message with network data if available
+                    assistant_message = {"role": "assistant", "content": assistant_response}
+                    
+                    # Add network visualization data to the message if we have it
+                    if nodes and edges:
+                        assistant_message["network_data"] = {"nodes": nodes, "edges": edges}
+                        assistant_message["query_results"] = query_results
+                        
+                        # Display the network visualization in the chat
+                        display_network_in_chat(nodes, edges)
+                        
+                        # Display query results details
+                        if query_results:
+                            with st.expander("📋 View Detailed Query Results", expanded=False):
+                                for i, record in enumerate(query_results):
+                                    st.markdown(f"**Result {i+1}**")
+                                    for key, value in record.items():
+                                        if hasattr(value, 'labels') and hasattr(value, 'id'):  # It's a node
+                                            label = list(value.labels)[0] if value.labels else "Node"
+                                            properties = dict(value.items()) if hasattr(value, 'items') else {}
+                                            st.markdown(f"**{key}** ({label})")
+                                            st.json(properties)
+                                        elif hasattr(value, 'type') and hasattr(value, 'start_node'):  # It's a relationship
+                                            st.markdown(f"**{key}** (Relationship: {value.type})")
+                                        else:  # It's a scalar value
+                                            st.markdown(f"**{key}**: {value}")
+                                    st.markdown("---")
+                    
+                    # Add assistant response to chat history
+                    st.session_state.messages.append(assistant_message)
+                        
+        except Exception as e:
+            error_msg = f"Error processing message: {str(e)}"
+            with st.chat_message("assistant"):
+                st.error(error_msg)
+            st.session_state.messages.append({"role": "assistant", "content": error_msg})
+    else:
+        error_msg = "Cannot respond: Required API keys or database connection not configured"
+        with st.chat_message("assistant"):
+            st.error(error_msg)
+        st.session_state.messages.append({"role": "assistant", "content": error_msg})
