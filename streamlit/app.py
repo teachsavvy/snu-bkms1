@@ -7,22 +7,24 @@ import requests
 import json
 from neo4j import GraphDatabase, RoutingControl
 
-def execute_neo4j_query(driver, query, parameters=None):
-    """Execute a Cypher query on Neo4j database"""
-    # Store the query in session state for context in AI responses
-    st.session_state.last_cypher_query = query
+from graph_util.graph_util import execute_neo4j_query, convert_neo4j_to_graph
+
+#def execute_neo4j_query(driver, query, parameters=None):
+#    """Execute a Cypher query on Neo4j database"""
+#    # Store the query in session state for context in AI responses
+#    st.session_state.last_cypher_query = query
     
-    try:
-        records, _, _ = driver.execute_query(
-            query,
-            parameters or {},
-            database_="neo4j",
-            routing_=RoutingControl.READ,
-        )
-        return records
-    except Exception as e:
-        st.error(f"Neo4j query error: {str(e)}")
-        return []
+#    try:
+#        records, _, _ = driver.execute_query(
+#            query,
+#            parameters or {},
+#            database_="neo4j",
+#            routing_=RoutingControl.READ,
+#        )
+#        return records
+#    except Exception as e:
+#        st.error(f"Neo4j query error: {str(e)}")
+#        return []
 
 def call_mcp_server(user_message):
     """Call MCP server to generate Cypher query"""
@@ -48,153 +50,152 @@ def call_mcp_server(user_message):
         st.error(f"Error calling MCP server: {str(e)}")
         return "", {}
 
-def convert_neo4j_to_graph(records):
-    """Convert Neo4j query results to nodes and edges for visualization"""
-    nodes = {}
-    edges = []
+#def convert_neo4j_to_graph(records):
+#    """Convert Neo4j query results to nodes and edges for visualization"""
+#    nodes = {}
+#    edges = []
     
-    # Node color mapping based on label
-    color_map = {
-        "User": "#FF6B6B",
-        "Question": "#4ECDC4",
-        "Answer": "#45B7D1",
-        "Tag": "#FFA62B",
-        "Comment": "#C04CFD"
-    }
+#    # Node color mapping based on label
+#    color_map = {
+#        "User": "#FF6B6B",
+#        "Question": "#4ECDC4",
+#        "Answer": "#45B7D1",
+#        "Tag": "#FFA62B",
+#        "Comment": "#C04CFD"
+#    }
     
-    # Process each record from the query results
-    for record in records:
-        # First pass: Extract all nodes
-        for key, value in record.items():
-            # Case 1: It's a Neo4j node object
-            if hasattr(value, 'labels') and hasattr(value, 'id'):
-                node_id = str(value.id)
-                if node_id not in nodes:
+#    # Process each record from the query results
+#    for record in records:
+#        # First pass: Extract all nodes
+#        for key, value in record.items():
+#            # Case 1: It's a Neo4j node object
+#            if hasattr(value, 'labels') and hasattr(value, 'id'):
+#                node_id = str(value.id)
+#                if node_id not in nodes:
                     # Get the first label (e.g., 'User', 'Question')
-                    label = list(value.labels)[0] if value.labels else "Node"
-                    
-                    # Get properties to display in the label
-                    properties = {}
-                    if hasattr(value, 'items'):
-                        properties = dict(value.items())
-                    
-                    # Create a meaningful label
-                    display_label = label
-                    if 'name' in properties:
-                        display_label = f"{label}: {properties['name']}"
-                    elif 'display_name' in properties:
-                        display_label = f"{label}: {properties['display_name']}"
-                    elif 'title' in properties:
-                        display_label = f"{label}: {properties['title'][:20]}..."
-                    
-                    # Create hover text that includes body_markdown if available
-                    hover_text = ""
-                    if 'title' in properties:
-                        # Truncate long markdown to a reasonable length for hover
-                        title_text = properties['title']
-                        if len(title_text) > 200:
-                            title_text = title_text[:197] + "..."
-                        hover_text = title_text
-                    if 'body_markdown' in properties:
-                        # Truncate long markdown to a reasonable length for hover
-                        body_text = properties['body_markdown']
-                        if len(body_text) > 200:
-                            body_text = body_text[:197] + "..."
-                        hover_text = body_text
-                    
-                    # Create the node with appropriate color and hover text
-                    nodes[node_id] = Node(
-                        id=node_id,
-                        label=display_label,
-                        size=25,
-                        color=color_map.get(label, "#4ECDC4"),
-                        title=hover_text  # This is what shows on hover
-                    )
-            
-            # Case 2: It's a Neo4j relationship object
-            elif hasattr(value, 'type') and hasattr(value, 'start_node') and hasattr(value, 'end_node'):
-                source_id = str(value.start_node.id)
-                target_id = str(value.end_node.id)
-                
-                # Add source and target nodes if they don't exist yet
-                for node, node_id, node_obj in [("source", source_id, value.start_node), 
-                                               ("target", target_id, value.end_node)]:
-                    if node_id not in nodes and hasattr(node_obj, 'labels'):
-                        label = list(node_obj.labels)[0] if node_obj.labels else "Node"
-                        
-                        # Get properties to check for body_markdown
-                        properties = {}
-                        if hasattr(node_obj, 'items'):
-                            properties = dict(node_obj.items())
-                        
-                        # Create hover text
-                        hover_text = ""
-                        if 'body_markdown' in properties:
-                            body_text = properties['body_markdown']
-                            if len(body_text) > 200:
-                                body_text = body_text[:197] + "..."
-                            hover_text = body_text
-                        elif 'body' in properties:
-                            body_text = properties['body']
-                            if len(body_text) > 200:
-                                body_text = body_text[:197] + "..."
-                            hover_text = body_text
-                        
-                        nodes[node_id] = Node(
-                            id=node_id,
-                            label=f"{label}",
-                            size=25,
-                            color=color_map.get(label, "#4ECDC4"),
-                            title=hover_text
-                        )
-                
-                # Create the edge
-                edge = Edge(
-                    source=source_id,
-                    target=target_id,
-                    label=value.type,
-                    color="#999"
-                )
-                edges.append(edge)
-            
-            # Case 3: Handle scalar values (create nodes for them)
-            elif isinstance(value, (str, int, float)) and key not in ["count", "sum", "avg"]:
-                # For scalar results like usernames, create nodes for them
-                node_id = f"{key}_{value}"
-                if node_id not in nodes:
-                    # For scalar values, use the value itself as hover text if it's a string
-                    hover_text = str(value) if isinstance(value, str) else f"{key}: {value}"
-                    
-                    nodes[node_id] = Node(
-                        id=node_id,
-                        label=f"{key}: {value}",
-                        size=25,
-                        color="#FFA62B",
-                        title=hover_text
-                    )
-    
-    # If we only have scalar values and no relationships, create a central node
-    if nodes and not edges and len(nodes) > 1:
-        central_id = "results_center"
-        nodes[central_id] = Node(
-            id=central_id,
-            label="Results",
-            size=30,
-            color="#C04CFD",
-            title="Central node connecting all query results"
-        )
-        
-        # Connect all nodes to the central node
-        for node_id in list(nodes.keys()):
-            if node_id != central_id:
-                edges.append(Edge(
-                    source=central_id,
-                    target=node_id,
-                    label="result",
-                    color="#CCCCCC"
-                ))
-    
-    return list(nodes.values()), edges
+#                   label = list(value.labels)[0] if value.labels else "Node"
+#                    
+#                    # Get properties to display in the label
+#                    properties = {}
+#                    if hasattr(value, 'items'):
+#                        properties = dict(value.items())
+#                    
+#                    # Create a meaningful label
+#                    display_label = label
+#                    if 'name' in properties:
+#                        display_label = f"{label}: {properties['name']}"
+#                    elif 'display_name' in properties:
+#                        display_label = f"{label}: {properties['display_name']}"
+#                    elif 'title' in properties:
+#                        display_label = f"{label}: {properties['title'][:20]}..."
+#                    
+#                    # Create hover text that includes body_markdown if available
+#                    hover_text = ""
+#                    if 'title' in properties:
+#                        # Truncate long markdown to a reasonable length for hover
+#                        title_text = properties['title']
+#                        if len(title_text) > 200:
+#                            title_text = title_text[:197] + "..."
+#                        hover_text = title_text
+#                    if 'body_markdown' in properties:
+#                        # Truncate long markdown to a reasonable length for hover
+#                        body_text = properties['body_markdown']
+#                        if len(body_text) > 200:
+#                            body_text = body_text[:197] + "..."
+#                        hover_text = body_text
+#                    
+#                    # Create the node with appropriate color and hover text
+#                    nodes[node_id] = Node(
+#                        id=node_id,
+#                        label=display_label,
+#                        size=25,
+#                        color=color_map.get(label, "#4ECDC4"),
+#                        title=hover_text  # This is what shows on hover
+#                    )
+#            
+#            # Case 2: It's a Neo4j relationship object
+#            elif hasattr(value, 'type') and hasattr(value, 'start_node') and hasattr(value, 'end_node'):
+#                source_id = str(value.start_node.id)
+#                target_id = str(value.end_node.id)
+#                
+#                # Add source and target nodes if they don't exist yet
+#                for node, node_id, node_obj in [("source", source_id, value.start_node), 
+#                                               ("target", target_id, value.end_node)]:
+#                    if node_id not in nodes and hasattr(node_obj, 'labels'):
+#                        label = list(node_obj.labels)[0] if node_obj.labels else "Node"
+#                        # Get properties to check for body_markdown
+#                        properties = {}
+#                        if hasattr(node_obj, 'items'):
+#                            properties = dict(node_obj.items())
+#                        
+#                        # Create hover text
+#                        hover_text = ""
+#                        if 'body_markdown' in properties:
+#                            body_text = properties['body_markdown']
+#                            if len(body_text) > 200:
+#                                body_text = body_text[:197] + "..."
+#                            hover_text = body_text
+#                        elif 'body' in properties:
+#                            body_text = properties['body']
+#                            if len(body_text) > 200:
+#                                body_text = body_text[:197] + "..."
+#                            hover_text = body_text
+#                        
+#                        nodes[node_id] = Node(
+#                            id=node_id,
+#                            label=f"{label}",
+#                            size=25,
+#                            color=color_map.get(label, "#4ECDC4"),
+#                            title=hover_text
+#                        )
+#                
+#                # Create the edge
+#                edge = Edge(
+#                    source=source_id,
+#                    target=target_id,
+#                    label=value.type,
+#                    color="#999"
+#                )
+#                edges.append(edge)
+#            
+#            # Case 3: Handle scalar values (create nodes for them)
+#            elif isinstance(value, (str, int, float)) and key not in ["count", "sum", "avg"]:
+#                # For scalar results like usernames, create nodes for them
+#                node_id = f"{key}_{value}"
+#                if node_id not in nodes:
+#                    # For scalar values, use the value itself as hover text if it's a string
+#                    hover_text = str(value) if isinstance(value, str) else f"{key}: {value}"
+#                    
+#                    nodes[node_id] = Node(
+#                        id=node_id,
+#                        label=f"{key}: {value}",
+#                        size=25,
+#                        color="#FFA62B",
+#                        title=hover_text
+#                    )
+#    
+#    # If we only have scalar values and no relationships, create a central node
+#    if nodes and not edges and len(nodes) > 1:
+#        central_id = "results_center"
+#        nodes[central_id] = Node(
+#            id=central_id,
+#            label="Results",
+#            size=30,
+#            color="#C04CFD",
+#            title="Central node connecting all query results"
+#        )
+#        
+#        # Connect all nodes to the central node
+#        for node_id in list(nodes.keys()):
+#            if node_id != central_id:
+#                edges.append(Edge(
+#                    source=central_id,
+#                    target=node_id,
+#                    label="result",
+#                    color="#CCCCCC"
+#                ))
+#    
+#    return list(nodes.values()), edges
 
 def display_network_in_chat(nodes, edges):
     """Display network visualization inside chat message"""
