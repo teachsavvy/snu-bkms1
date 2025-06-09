@@ -91,7 +91,8 @@ You are an expert Neo4j Cypher query translator. Your task is to convert natural
 Always adhere to the following rules:
 - Only use the nodes, relationships, and properties explicitly defined in the schema.
 - Do not infer or invent any details not present in the schema.
-- Output ONLY the raw Cypher query, without any additional text, explanations, or markdown formatting like ```cypher.
+- Output ONLY the raw Cypher query, without any additional text.
+- Do NOT include Markdown code blocks (e.g., triple backticks like ```cypher).
 """
 
     user_prompt = f"""
