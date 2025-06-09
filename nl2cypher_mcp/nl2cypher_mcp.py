@@ -75,12 +75,12 @@ Graph Schema for StackOverflow Neo4j:
         - score
 
 🟨 Relationships (You may assume or infer):
-  - (u:User)-[:ASKED]->(q:Question)
-  - (u:User)-[:ANSWERED]->(a:Answer)
-  - (a:Answer)-[:ANSWERS]->(q:Question)
-  - (q:Question)-[:HAS_TAG]->(t:Tag)
-  - (q:Question)-[:HAS_COMMENT]->(c:Comment)
-  - (a:Answer)-[:HAS_COMMENT]->(c:Comment)
+  - (u:User)-[:PROVIDED]->(a:Answer)
+  - (a:Answer)-[:ANSWERED]->(q:Question)
+  - (q:Question)-[:TAGGED]->(t:Tag)
+  - (u:User)-[:COMMENTED]->(c:Comment)
+  - (c:Comment)-[:COMMENTED_ON]->(q:Question)
+  - (c:Comment)-[:COMMENTED_ON]->(a:Answer)
 """
 
 
