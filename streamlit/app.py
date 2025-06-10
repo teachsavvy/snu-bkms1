@@ -337,7 +337,7 @@ for message in st.session_state.messages:
                     for i, record in enumerate(results):
                         st.markdown(f"**Result {i+1}**")
                         for key, value in record.items():
-                            if hasattr(value, 'labels') and hasattr(value, 'id'):  # It's a node
+                            if hasattr(value, 'labels') and hasattr(value, 'element_id'):  # It's a node
                                 label = list(value.labels)[0] if value.labels else "Node"
                                 properties = dict(value.items()) if hasattr(value, 'items') else {}
                                 st.markdown(f"**{key}** ({label})")
@@ -412,7 +412,7 @@ if prompt := st.chat_input("Ask me anything about the network or any other topic
                             record_summary = {}
                             for key, value in record.items():
                                 # Handle different types of values
-                                if hasattr(value, 'labels') and hasattr(value, 'id'):
+                                if hasattr(value, 'labels') and hasattr(value, 'element_id'):
                                     # It's a node
                                     label = list(value.labels)[0] if value.labels else "Node"
                                     properties = dict(value.items()) if hasattr(value, 'items') else {}
@@ -458,7 +458,7 @@ if prompt := st.chat_input("Ask me anything about the network or any other topic
                                 for i, record in enumerate(query_results):
                                     st.markdown(f"**Result {i+1}**")
                                     for key, value in record.items():
-                                        if hasattr(value, 'labels') and hasattr(value, 'id'):  # It's a node
+                                        if hasattr(value, 'labels') and hasattr(value, 'element_id'):  # It's a node
                                             label = list(value.labels)[0] if value.labels else "Node"
                                             properties = dict(value.items()) if hasattr(value, 'items') else {}
                                             st.markdown(f"**{key}** ({label})")
