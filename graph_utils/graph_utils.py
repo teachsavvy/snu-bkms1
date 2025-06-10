@@ -102,18 +102,18 @@ def convert_neo4j_to_graph(records):
                             title=str(value)
                         )
 
-    # If no relationships but multiple scalar nodes exist, group them under a central hub node
-    if nodes and not edges and len(nodes) > 1:
-        center_id = "center_node"
-        nodes[center_id] = Node(
-            id=center_id,
-            label="Query Results",
-            size=35,
-            color="#C04CFD",
-            title="Grouped scalar values"
-        )
-        for nid in list(nodes.keys()):
-            if nid != center_id:
-                edges.append(Edge(source=center_id, target=nid, label="related"))
+    # # If no relationships but multiple scalar nodes exist, group them under a central hub node
+    # if nodes and not edges and len(nodes) > 1:
+    #     center_id = "center_node"
+    #     nodes[center_id] = Node(
+    #         id=center_id,
+    #         label="Query Results",
+    #         size=35,
+    #         color="#C04CFD",
+    #         title="Grouped scalar values"
+    #     )
+    #     for nid in list(nodes.keys()):
+    #         if nid != center_id:
+    #             edges.append(Edge(source=center_id, target=nid, label="related"))
 
     return list(nodes.values()), edges

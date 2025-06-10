@@ -239,12 +239,29 @@ def display_network_in_chat(nodes, edges):
     if return_value:
         st.write("**Selected Node:**", return_value)
 
+def clean_messages_for_api(messages):
+    """Clean messages to ensure they are JSON serializable for the API"""
+    cleaned_messages = []
+    
+    for msg in messages:
+        # Create a new message with only the essential fields
+        cleaned_msg = {
+            "role": msg["role"],
+            "content": msg["content"]
+        }
+        cleaned_messages.append(cleaned_msg)
+    
+    return cleaned_messages
+
 def stream_openai_response(client, messages):
     """Stream response from OpenAI API"""
     try:
+        # Clean messages to ensure they are JSON serializable
+        api_messages = clean_messages_for_api(messages)
+        
         stream = client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=messages,
+            messages=api_messages,
             max_tokens=500,
             temperature=0.7,
             stream=True
@@ -391,6 +408,8 @@ if prompt := st.chat_input("Ask me anything about the network or any other topic
                                     nodes, edges = convert_neo4j_to_graph(query_results)
                                     if nodes:
                                         st.success("📈 Network visualization generated!")
+
+                                        st.session_state.messages[-1]["network_data"] = {"nodes": nodes, "edges": edges}
                                     else:
                                         st.warning("No graph data found in query results")
                                 else:
@@ -448,8 +467,6 @@ if prompt := st.chat_input("Ask me anything about the network or any other topic
                     if nodes and edges:
                         assistant_message["network_data"] = {"nodes": nodes, "edges": edges}
                         assistant_message["query_results"] = query_results
-                        
-                        # Display the network visualization in the chat
                         display_network_in_chat(nodes, edges)
                         
                         # Display query results details
