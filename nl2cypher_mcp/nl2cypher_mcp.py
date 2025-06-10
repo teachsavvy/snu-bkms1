@@ -75,6 +75,7 @@ Graph Schema for StackOverflow Neo4j:
         - score
 
 🟨 Relationships (You may assume or infer):
+  - (u:User)-[:ASKED]->(q:Question)
   - (u:User)-[:PROVIDED]->(a:Answer)
   - (a:Answer)-[:ANSWERED]->(q:Question)
   - (q:Question)-[:TAGGED]->(t:Tag)
