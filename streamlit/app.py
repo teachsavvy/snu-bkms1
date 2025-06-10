@@ -274,10 +274,9 @@ NEO4J_AUTH = (os.getenv("NEO4J_AUTH_USERNAME"), os.getenv("NEO4J_AUTH_PASSWORD")
 api_key = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=api_key) if api_key else None
 
-# Page configuration
 st.set_page_config(
-    page_title="AI Chatbot with Network Visualization",
-    page_icon="🤖",
+    page_title="GraphRAG Chatbot with Stack Overflow",
+    page_icon="https://cdn.sstatic.net/Sites/stackoverflow/company/img/logos/so/so-icon.png",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -308,7 +307,8 @@ st.sidebar.markdown("""
 """)
 
 # Main content
-st.title("🤖 AI Chatbot with Network Visualization")
+st.image("https://stackoverflow.design/assets/img/logos/so/logo-stackoverflow.png", width=200)
+st.title("🤖 GraphRAG Chatbot for Searching")
 
 # Initialize session state
 if "messages" not in st.session_state:
