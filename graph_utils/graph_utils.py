@@ -3,38 +3,39 @@ import streamlit as st
 from streamlit_agraph import Node, Edge
 from neo4j import RoutingControl
 
-
 def execute_neo4j_query(driver, query, parameters=None):
     """Execute a Cypher query on Neo4j database with logging and timing"""
-    st.session_state.last_cypher_query = query  # For LLM explanation
-
+    # Store the last executed query for LLM explanations
+    st.session_state.last_cypher_query = query
     try:
         start = time.time()
-
         records, _, _ = driver.execute_query(
             query,
             parameters or {},
             database_="neo4j",
             routing_=RoutingControl.READ,
         )
-
         elapsed = time.time() - start
         st.info(f"✅ Cypher query executed in {elapsed:.2f} seconds")
-
         return records
-
     except Exception as e:
         st.error("❌ Neo4j query failed")
         st.code(query, language='cypher')
         st.exception(e)
         return []
 
-
 def convert_neo4j_to_graph(records):
-    """Convert Neo4j query results to graph nodes and edges for visualization"""
+    """Convert Neo4j query results to Streamlit-agraph nodes and edges.
+    Any relationships returned by the query are used directly. When a record
+    contains only nodes, simple heuristics create edges between Users, Questions,
+    Answers, Tags and Comments based on the Stack Overflow schema. This keeps
+    the visualization connected even if the Cypher query omitted relationships.
+    """
     nodes = {}
     edges = []
+    edge_set = set()
 
+    # Visual distinction for different node labels
     color_map = {
         "User": "#FF6B6B",
         "Question": "#4ECDC4",
@@ -42,113 +43,104 @@ def convert_neo4j_to_graph(records):
         "Tag": "#FFA62B",
         "Comment": "#C04CFD"
     }
-
+    # Iterate over each record and create corresponding nodes/edges
     for idx, record in enumerate(records):
-        # Handle scalar-only records (e.g., {'name': 'Jon', 'count': 5})
         if all(isinstance(v, (str, int, float)) for v in record.values()):
-#            display_name = record.get("u.display_name") or record.get("name") or f"record_{idx}"
-#            label_str = str(display_name)
-#
-#            node_id = f"record_{idx}"
-#            if node_id not in nodes:
-#                nodes[node_id] = Node(
-#                        id=node_id,
-#                        label=label_str,  # 이름만 출력
-#                        size=30,
-#                        color="#88C0D0",
-#                        title=", ".join(f"{k}: {v}" for k, v in record.items())  # hover에 전체 정보
-#                )
-           label_str = ", ".join([f"{k}: {v}" for k, v in record.items()])
-
-    # title 속성 자동 탐색 (예: 'title', 'q.title', 'question_title' 등)
-           label_keys = [k for k in record.keys() if "name" in k.lower() or "title" in k.lower()]
-           display_label = str(record[label_keys[0]]) if label_keys else "Result"
-
-           node_id = f"record_{idx}"
-           nodes[node_id] = Node(
-               id=node_id,
-               label=display_label[:30],  # 노드에 짧은 제목 표시
-               size=30,
-               color="#88C0D0",
-               title=label_str             # hover에는 전체 정보
-           )
+            label_str = ", ".join(f"{k}: {v}" for k, v in record.items())
+            label_keys = [
+                k for k in record
+                if isinstance(k, str) and ("name" in k.lower() or "title" in k.lower())
+            ]
+            display_label = str(record[label_keys[0]]) if label_keys else "Result"
+            node_id = f"record_{idx}"
+            nodes[node_id] = Node(
+                id=node_id,
+                label=display_label[:30],
+                size=30,
+                color="#88C0D0",
+                title=label_str,
+            )
         else:
             for key, value in record.items():
-                # Handle node objects
-                if hasattr(value, 'labels') and hasattr(value, 'id'):
+                if hasattr(value, "labels") and hasattr(value, "id"):
                     node_id = str(value.id)
+                    properties = dict(value.items()) if hasattr(value, "items") else {}
                     if node_id not in nodes:
                         label = list(value.labels)[0] if value.labels else "Node"
-                        properties = dict(value.items()) if hasattr(value, 'items') else {}
-
-                        display_label = properties.get("title") or properties.get("display_name") or properties.get("name") or label
+                        display_label = (
+                            properties.get("title")
+                            or properties.get("display_name")
+                            or properties.get("name")
+                            or label
+                        )
                         display_label = f"{label}: {display_label[:20]}"
-
                         hover_text = properties.get("body_markdown") or properties.get("title") or ""
                         hover_text = hover_text[:200] + "..." if len(hover_text) > 200 else hover_text
-
-                        nodes[node_id] = Node(
+                        node_obj = Node(
                             id=node_id,
                             label=display_label,
                             size=25,
                             color=color_map.get(label, "#4ECDC4"),
-                            title=hover_text
+                            title=hover_text,
                         )
+                        nodes[node_id] = node_obj
+                    else:
+                        node_obj = nodes[node_id]
+                    # Store full Neo4j properties for display when selected
+                    setattr(node_obj, "properties", properties)
 
-                # Handle relationship objects
-                elif hasattr(value, 'type') and hasattr(value, 'start_node') and hasattr(value, 'end_node'):
-                    source_id = str(value.start_node.id)
-                    target_id = str(value.end_node.id)
-                    edge = Edge(
-                        source=source_id,
-                        target=target_id,
-                        label=value.type,
-                        color="#888"
-                    )
-                    edges.append(edge)
-                for idx, record in enumerate(records):
+                elif (
+                    hasattr(value, "type")
+                    and hasattr(value, "start_node")
+                    and hasattr(value, "end_node")
+                ):
+                    start_node = value.start_node
+                    end_node = value.end_node
+                    for node in (start_node, end_node):
+                        n_id = str(node.id)
+                        props = (
+                            dict(node.items()) if hasattr(node, "items") else {}
+                        )
+                        if n_id not in nodes:
+                            label = list(node.labels)[0] if node.labels else "Node"
+                            disp_label = (
+                                props.get("title")
+                                or props.get("display_name")
+                                or props.get("name")
+                                or label
+                            )
+                            disp_label = f"{label}: {disp_label[:20]}"
+                            hover = props.get("body_markdown") or props.get("title") or ""
+                            hover = hover[:200] + "..." if len(hover) > 200 else hover
+                            node_obj = Node(
+                                id=n_id,
+                                label=disp_label,
+                                size=25,
+                                color=color_map.get(label, "#4ECDC4"),
+                                title=hover,
+                            )
+                            nodes[n_id] = node_obj
+                        else:
+                            node_obj = nodes[n_id]
 
-                    if all(isinstance(v, (str, int, float)) for v in record.values()):
-                       label_str = ", ".join([f"{k}: {v}" for k, v in record.items()])
+                        setattr(node_obj, "properties", props)
 
-        
-                       label_keys = [k for k in record.keys() if "name" in k.lower() or "title" in k.lower()]
-                       display_label = str(record[label_keys[0]]) if label_keys else f"record_{idx}"
+                    source_id = str(start_node.id)
+                    target_id = str(end_node.id)
 
-                       node_id = f"record_{idx}"
-                       nodes[node_id] = Node(
-                            id=node_id,
-                            label=display_label[:30],
-                            size=30,
-                            color="#88C0D0",
-                            title=label_str             
-                       )
+                    # Skip self-edges
+                    if source_id != target_id:
+                        edge_key = (source_id, target_id, value.type)
 
+                        if edge_key not in edge_set:
+                            edge_set.add(edge_key)
+                            edges.append(
+                                Edge(
+                                    source=source_id,
+                                    target=target_id,
+                                    label=value.type,
+                                    color="#888",
+                                )
+                            )
 
-                # Handle scalar values mixed within records (e.g., individual count or name fields)
-#                elif isinstance(value, (str, int, float)):
-#                    node_id = f"{key}_{value}"
-#                    if node_id not in nodes:
-#                        nodes[node_id] = Node(
-#                            id=node_id,
-#                            label=clean_label,
-#                            size=25,
-#                            color="#FFA62B",
-#                            title=str(value)
-#                        )
-
-    # If no relationships but multiple scalar nodes exist, group them under a central hub node
-    if nodes and not edges:
-        center_id = "center_node"
-        nodes[center_id] = Node(
-            id=center_id,
-            label="Query Result",
-            size=30,
-            color="#C04CFD",
-            title="Single-node result"
-        )
-        for nid in list(nodes.keys()):
-            if nid != center_id:
-                edges.append(Edge(source=center_id, target=nid, label="result"))
-
-        return list(nodes.values()), edges
+    return list(nodes.values()), edges

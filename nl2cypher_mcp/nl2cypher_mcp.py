@@ -1,8 +1,3 @@
-# ├── 1. 스키마 Prompt 정의
-# ├── 2. Few-shot 예시 정의 (필요 시)
-# ├── 3. 자연어 → Cypher 함수
-# ├── 4. 예외처리 포함 실행 블록 (필요 시)
-
 # nl2cypher_mcp.py
 
 from fastapi import FastAPI
@@ -12,6 +7,7 @@ import uvicorn
 import os
 import openai
 from dotenv import load_dotenv
+import re
 
 # 1. 환경 변수 불러오기
 load_dotenv()
@@ -87,13 +83,35 @@ Graph Schema for StackOverflow Neo4j:
 
 # 6. 자연어 → Cypher 변환 함수
 def natural_language_to_cypher(nl_query: str) -> str:
+    # [수정됨] 시스템 프롬프트를 더욱 명확하고 강력한 규칙으로 변경합니다.
     system_prompt = f"""
-You are an expert Neo4j Cypher query translator. Your task is to convert natural language questions into Cypher queries based on the provided schema.
-Always adhere to the following rules:
-- Only use the nodes, relationships, and properties explicitly defined in the schema.
-- Do not infer or invent any details not present in the schema.
-- Output ONLY the raw Cypher query, without any additional text.
-- Do NOT include Markdown code blocks (e.g., triple backticks like ```cypher).
+You are an expert Neo4j Cypher query translator, creating queries for a graph visualization tool.
+Your primary goal is to write queries that return all the necessary data to draw a graph.
+
+**Core Principles:**
+- You MUST assign a variable to every relationship in a MATCH pattern (e.g., `[r:ASKED]`).
+- The `RETURN` clause MUST include all variables for nodes and relationships defined in the `MATCH` clause.
+- For aggregation queries (like counting), you MUST use a `WITH` clause to compute the aggregation before the final `RETURN`.
+
+**See the following examples:**
+
+---
+**Example 1: Simple relationship query**
+Natural language: "What are the latest questions from user 'A. L'?"
+Correct Cypher: `MATCH (u:User {{display_name: 'A. L'}})-[r:ASKED]->(q:Question) RETURN u, r, q ORDER BY q.creation_date DESC LIMIT 3`
+
+---
+**Example 2: Aggregation query**
+Natural language: "Which user asked the most questions?"
+Correct Cypher: `MATCH (u:User)-[:ASKED]->(q:Question) WITH u, count(q) AS questionCount RETURN u.display_name, questionCount ORDER BY questionCount DESC LIMIT 1`
+
+---
+**Example 3: Multi-hop query**
+Natural language: "Who answered questions tagged 'python'?"
+Correct Cypher: `MATCH (u:User)-[r1:PROVIDED]->(a:Answer)-[r2:ANSWERED]->(q:Question)-[r3:TAGGED]->(t:Tag {{name: 'python'}}) RETURN u, r1, a, r2, q, r3, t`
+---
+
+Now, using the provided schema, translate the following question. Output ONLY the raw Cypher query.
 """
 
     user_prompt = f"""
@@ -105,20 +123,22 @@ Natural language question:
 
 Cypher query:
 """
-    # [개선] 안정성을 위해 상세 에러 처리만 추가
     try:
-        # 새로운 버전(v1.x)의 openai 라이브러리 호출 방식을 사용합니다.
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
-            temperature=0
+            temperature=0,
         )
-        return response.choices[0].message.content.strip()
 
-    # 새로운 openai 라이브러리의 에러 구조 처리
+        query_text = response.choices[0].message.content.strip()
+        query_text = re.sub(r'^```(?:cypher)?\n', '', query_text)
+        query_text = re.sub(r'```$', '', query_text).strip()
+
+        return query_text
+
     except openai.AuthenticationError:
         return "[ERROR] OpenAI API 인증에 실패했습니다. API 키를 확인하세요."
     except openai.RateLimitError:
