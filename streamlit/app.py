@@ -196,7 +196,7 @@ st.sidebar.markdown("""
 """)
 # Main content
 st.image("https://stackoverflow.design/assets/img/logos/so/logo-stackoverflow.png", width=200)
-st.title("🤖 GraphRAG Chatbot for Searching")
+st.title("🤖 GraphRAG for Knowledge Retrieval on GDBMS")
 # Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -212,8 +212,8 @@ st.markdown(
     <style>
         .stButton>button {
             position: fixed;
-            bottom: 20px;
-            right: 20px;
+            bottom: 10px;
+            right: 80px;
             z-index: 1000;
         }
     </style>
@@ -253,9 +253,9 @@ for message in st.session_state.messages:
             st.markdown(message["content"])
 # Show info message only if no messages exist
 if not st.session_state.messages:
-    st.info("💭 Start a conversation! Ask me about network data or any other topic.")
+    st.info("💭 그래프 데이터베이스 관련 지식을 물어보세요!")
 # Chat input
-if prompt := st.chat_input("Ask me anything about the network or any other topic..."):
+if prompt := st.chat_input("여기에 질문하세요"):
     # Add user message to chat history and display immediately
     st.session_state.messages.append({"role": "user", "content": prompt})
 
