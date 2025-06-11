@@ -46,15 +46,32 @@ def convert_neo4j_to_graph(records):
     for idx, record in enumerate(records):
         # Handle scalar-only records (e.g., {'name': 'Jon', 'count': 5})
         if all(isinstance(v, (str, int, float)) for v in record.values()):
-            label_str = ", ".join([f"{k}: {v}" for k, v in record.items()])
-            node_id = f"record_{idx}"
-            nodes[node_id] = Node(
-                id=node_id,
-                label="Result",
-                size=30,
-                color="#88C0D0",
-                title=label_str
-            )
+#            display_name = record.get("u.display_name") or record.get("name") or f"record_{idx}"
+#            label_str = str(display_name)
+#
+#            node_id = f"record_{idx}"
+#            if node_id not in nodes:
+#                nodes[node_id] = Node(
+#                        id=node_id,
+#                        label=label_str,  # 이름만 출력
+#                        size=30,
+#                        color="#88C0D0",
+#                        title=", ".join(f"{k}: {v}" for k, v in record.items())  # hover에 전체 정보
+#                )
+           label_str = ", ".join([f"{k}: {v}" for k, v in record.items()])
+
+    # title 속성 자동 탐색 (예: 'title', 'q.title', 'question_title' 등)
+           label_keys = [k for k in record.keys() if "name" in k.lower() or "title" in k.lower()]
+           display_label = str(record[label_keys[0]]) if label_keys else "Result"
+
+           node_id = f"record_{idx}"
+           nodes[node_id] = Node(
+               id=node_id,
+               label=display_label[:30],  # 노드에 짧은 제목 표시
+               size=30,
+               color="#88C0D0",
+               title=label_str             # hover에는 전체 정보
+           )
         else:
             for key, value in record.items():
                 # Handle node objects
@@ -96,7 +113,7 @@ def convert_neo4j_to_graph(records):
                     if node_id not in nodes:
                         nodes[node_id] = Node(
                             id=node_id,
-                            label=f"{key}: {value}",
+                            label=clean_label,
                             size=25,
                             color="#FFA62B",
                             title=str(value)
@@ -116,4 +133,4 @@ def convert_neo4j_to_graph(records):
             if nid != center_id:
                 edges.append(Edge(source=center_id, target=nid, label="result"))
 
-    return list(nodes.values()), edges
+        return list(nodes.values()), edges
