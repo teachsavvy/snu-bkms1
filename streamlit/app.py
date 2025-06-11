@@ -406,9 +406,13 @@ if prompt := st.chat_input("Ask me anything about the network or any other topic
                                     
                                     # Step 3: Convert results to graph visualization
                                     nodes, edges = convert_neo4j_to_graph(query_results)
-                                    if nodes:
-                                        st.success("📈 Network visualization generated!")
 
+                                    # ✅ 디버깅 로그 추가
+                                    st.write("🧪 nodes:", len(nodes), "edges:", len(edges))
+
+                                    # 제안된 조건
+                                    if nodes or edges:
+                                        st.success("📈 Network visualization generated!")
                                         st.session_state.messages[-1]["network_data"] = {"nodes": nodes, "edges": edges}
                                     else:
                                         st.warning("No graph data found in query results")
