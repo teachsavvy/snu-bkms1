@@ -196,7 +196,7 @@ st.sidebar.markdown("""
 """)
 # Main content
 st.image("https://stackoverflow.design/assets/img/logos/so/logo-stackoverflow.png", width=200)
-st.title("🤖 GraphRAG for Knowledge Retrieval on GDBMS")
+st.title("🤖 GDBMS-Related Knowledge Retrieval Based on GraphRAG")
 # Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
