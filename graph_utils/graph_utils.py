@@ -106,18 +106,36 @@ def convert_neo4j_to_graph(records):
                         color="#888"
                     )
                     edges.append(edge)
+                for idx, record in enumerate(records):
+
+                    if all(isinstance(v, (str, int, float)) for v in record.values()):
+                       label_str = ", ".join([f"{k}: {v}" for k, v in record.items()])
+
+        
+                       label_keys = [k for k in record.keys() if "name" in k.lower() or "title" in k.lower()]
+                       display_label = str(record[label_keys[0]]) if label_keys else f"record_{idx}"
+
+                       node_id = f"record_{idx}"
+                       nodes[node_id] = Node(
+                            id=node_id,
+                            label=display_label[:30],
+                            size=30,
+                            color="#88C0D0",
+                            title=label_str             
+                       )
+
 
                 # Handle scalar values mixed within records (e.g., individual count or name fields)
-                elif isinstance(value, (str, int, float)):
-                    node_id = f"{key}_{value}"
-                    if node_id not in nodes:
-                        nodes[node_id] = Node(
-                            id=node_id,
-                            label=clean_label,
-                            size=25,
-                            color="#FFA62B",
-                            title=str(value)
-                        )
+#                elif isinstance(value, (str, int, float)):
+#                    node_id = f"{key}_{value}"
+#                    if node_id not in nodes:
+#                        nodes[node_id] = Node(
+#                            id=node_id,
+#                            label=clean_label,
+#                            size=25,
+#                            color="#FFA62B",
+#                            title=str(value)
+#                        )
 
     # If no relationships but multiple scalar nodes exist, group them under a central hub node
     if nodes and not edges:
